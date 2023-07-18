@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -10,9 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/mdwhatcott/spin"
-	"github.com/smartystreets/scantest/go-shlex"
 )
 
 func main() {
@@ -24,16 +23,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	args, err := shlex.Split(*command)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(args) < 1 {
-		log.Fatal("Please provide something to run.")
-	}
-
 	scanner := &Scanner{working: working}
-	runner := &Runner{working: working, command: args}
+	runner := &Runner{working: working, command: *command}
 	for {
 		if scanner.Scan() {
 			runner.Run()
@@ -109,12 +100,12 @@ func (this *Scanner) checksum() int64 {
 ////////////////////////////////////////////////////////////////////////////
 
 type Runner struct {
-	command []string
+	command string
 	working string
 }
 
 func (this *Runner) Run() {
-	message := fmt.Sprintln(" Executing:", strings.Join(this.command, " "))
+	message := fmt.Sprintln(" Executing:", this.command)
 
 	write(clearScreen)
 	writeln()
@@ -140,39 +131,43 @@ func writeln() {
 	write("\n")
 }
 func write(a ...interface{}) {
-	fmt.Fprint(os.Stdout, a...)
-	os.Stdout.Sync()
+	_, _ = fmt.Fprint(os.Stdout, a...)
+	_ = os.Stdout.Sync()
 }
 
 func (this *Runner) run() (output []byte, success bool) {
-	command := exec.Command(this.command[0])
-	if len(this.command) > 1 {
-		command.Args = append(command.Args, this.command[1:]...)
-	}
+	command := exec.Command("bash", "-c", this.command)
 	command.Dir = this.working
+	buffer := bytes.NewBufferString("")
+	writer := io.MultiWriter(buffer, os.Stdout)
+	command.Stdout = writer
+	command.Stderr = writer
 
 	now := time.Now()
-	spinner := spin.New(spin.StyleLine, time.Millisecond*100)
-	go spinner.Start()
-
-	var err error
-	output, err = command.CombinedOutput()
-	spinner.Stop()
+	err := command.Run()
 	fmt.Println(Round(time.Since(now), time.Millisecond))
 	if err != nil {
-		output = append(output, []byte(err.Error())...)
+		_, _ = io.WriteString(writer, err.Error())
 	}
-	return output, command.ProcessState.Success()
+	return buffer.Bytes(), command.ProcessState.Success()
 }
 
+// Round rounds a duration to a precision, in a more human-readable way than time.Round.
 // GoLang-Nuts thread:
-//     https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/RQb4TvXUg1EJ
+//
+//	https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/RQb4TvXUg1EJ
+//
 // Wise, a word which here means unhelpful, guidance from Commander Pike:
-//     https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/zoGNwDVKIqAJ
+//
+//	https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/zoGNwDVKIqAJ
+//
 // Answer satisfying the original asker:
-//     https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/wnrz0tNXzngJ
+//
+//	https://groups.google.com/d/msg/golang-nuts/OWHmTBu16nA/wnrz0tNXzngJ
+//
 // Answer implementation on the Go Playground:
-//     http://play.golang.org/p/QHocTHl8iR
+//
+//	http://play.golang.org/p/QHocTHl8iR
 func Round(duration, precision time.Duration) time.Duration {
 	if precision <= 0 {
 		return duration
