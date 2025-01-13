@@ -84,8 +84,6 @@ func (this *Scanner) checksum() int64 {
 	err := filepath.Walk(this.working, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			sum++
-		} else if info.Name() == "generated_by_gunit_test.go" {
-			return nil
 		} else if strings.HasSuffix(info.Name(), ".go") || info.Name() == "Makefile" {
 			sum += info.Size() + info.ModTime().Unix()
 		}
